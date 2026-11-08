@@ -1,0 +1,8 @@
+# /etc/systemd/system/ks-live.service
+[Unit]
+Description=Kuaishou live-photo link keepalive
+
+[Service]
+Type=oneshot
+User=zm
+ExecStart=/home/zm/zmbot/astrbot_plugin_LinkFlow_aux/keepalive.sh

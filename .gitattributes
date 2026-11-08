@@ -1,0 +1,21 @@
+# shell 脚本 / Python / YAML / systemd 单元必须保持 LF
+# 原因: Windows 上 core.autocrlf=true 会把 LF 转成 CRLF,
+# 提交后服务器拉下来就是 CRLF, Linux 执行时报
+# "/bin/bash^M: bad interpreter" 或 YAML 解析报错。
+# 本仓库的脚本要在服务器(192.168.2.31)和平板(Android sh)上跑, 一律 LF。
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
+*.0     text eol=lf
+
+# 证书是二进制, 不做行尾转换
+*.apk   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.mp4   binary
+*.kvif  binary

@@ -1,0 +1,98 @@
+# FlClash profile — 快手实况图抓包专用
+# 出站: 走服务器上的 mitmproxy (常规 proxy 模式) 做 TLS MITM
+# 关键点(2026-11-08 修复):
+#   1) sniffer 必开 —— 否则 TLS 连接只能看到裸 IP, 匹配不上任何 DOMAIN 规则,
+#      快手 App 的详情页请求会走 MATCH,DIRECT 漏出抓包(表现为 info2 收不到)
+#   2) find-process-mode: strict —— 允许按进程名分流, 双保险
+#   3) 规则用 DOMAIN-KEYWORD 覆盖快手系 + 裸 IP 兜底
+#   4) 【2026-11-08 17:0x 实测修复】禁用 QUIC(HTTP/3) ——
+#      现象: 详情页不再发 info2, FlClash 连接面板里
+#            api.kwaizt.com:8443 / api.kuaishouzt.com:8443
+#            az3-api.ksapisrv.com:8443 / az3-live.ksapisrv.com:8443
+#            全部显示出口 DIRECT, 服务器 ks_live.flows 里 kwaizt/kuaishouzt
+#            计数为 0。
+#      根因: 8443 是 QUIC(UDP) 端口。ks-mitm 是 type=http 代理, 不支持 UDP 转发,
+#            mihomo 命中 PROXY 规则后对 UDP 连接会静默回退 DIRECT —— 于是
+#            az3-api/az3-live(详情页 API 集群)的 info2 请求完全绕过抓包。
+#      修法: 用 AND 规则对快手系 UDP 443/8443 直接 REJECT, 逼 App 回退到
+#            TCP+TLS, 从而走 PROXY -> mitmproxy。QUIC sniffer 保留, 便于
+#            日志确认还剩哪些 UDP。
+#   5) 补齐规则缺口: kwaizt / kuaishouzt 之前完全没被任何规则覆盖,
+#      就算走 TCP 也会 MATCH,DIRECT。
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: info
+ipv6: true
+external-controller: 127.0.0.1:9090
+find-process-mode: strict
+
+proxies:
+  - name: ks-mitm
+    type: http
+    server: 192.168.2.31
+    port: 18080
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - ks-mitm
+
+rules:
+  # --- 0) 禁用快手系 QUIC(HTTP/3): UDP 无法经 http 代理转发, 会回退 DIRECT 漏出抓包 ---
+  - AND,((DOMAIN-KEYWORD,kuaishou),(NETWORK,udp)),REJECT
+  - AND,((DOMAIN-KEYWORD,gifshow),(NETWORK,udp)),REJECT
+  - AND,((DOMAIN-KEYWORD,yxcorp),(NETWORK,udp)),REJECT
+  - AND,((DOMAIN-KEYWORD,ksapisrv),(NETWORK,udp)),REJECT
+  - AND,((DOMAIN-KEYWORD,kwaizt),(NETWORK,udp)),REJECT
+  - AND,((DOMAIN-KEYWORD,kuaishouzt),(NETWORK,udp)),REJECT
+  - AND,((DOMAIN-KEYWORD,kwaixiaodian),(NETWORK,udp)),REJECT
+  # 进程兜底: 万一 QUIC sniffer 没还原出域名(域名规则失配), 直接禁掉快手 App
+  # 的全部 UDP —— 反正 http 代理本来也转发不了 UDP, 禁掉等价于强制回退 TCP。
+  - AND,((PROCESS-NAME,com.kuaishou.nebula),(NETWORK,udp)),REJECT
+  - AND,((PROCESS-NAME,com.smile.gifmaker),(NETWORK,udp)),REJECT
+  # --- 1) 快手系(域名关键字与 mitmproxy 过滤器 ks_filter.py 保持一致) ---
+  - DOMAIN-KEYWORD,kuaishou,PROXY
+  - DOMAIN-KEYWORD,gifshow,PROXY
+  - DOMAIN-KEYWORD,yxcorp,PROXY
+  - DOMAIN-KEYWORD,ksapisrv,PROXY
+  # 实测这两个之前完全没被覆盖(TCP 也会漏)
+  - DOMAIN-KEYWORD,kwaizt,PROXY
+  - DOMAIN-KEYWORD,kuaishouzt,PROXY
+  - DOMAIN-KEYWORD,kwaixiaodian,PROXY
+  - DOMAIN-SUFFIX,kuaishou.com,PROXY
+  - DOMAIN-SUFFIX,kuaishouapp.com,PROXY
+  - DOMAIN-SUFFIX,kwai.com,PROXY
+  - DOMAIN-SUFFIX,ksapis.cn,PROXY
+  # 按进程兜底: 快手 App 的所有连接(含裸 IP)全部走抓包代理
+  - PROCESS-NAME,com.kuaishou.nebula,PROXY
+  - PROCESS-NAME,com.smile.gifmaker,PROXY
+  # 其余全部直连
+  - MATCH,DIRECT
+
+sniffer:
+  enable: true
+  override-destination: true
+  force-domain:
+    - "+.kuaishou.com"
+    - "+.gifshow.com"
+    - "+.ksapisrv.com"
+    - "+.kwai.com"
+    - "+.kuaishouapp.com"
+    - "+.ksapis.cn"
+    - "+.kwaizt.com"
+    - "+.kuaishouzt.com"
+    - "+.kwaixiaodian.com"
+  sniff:
+    HTTP:
+      ports: [80, 8080, 8880]
+      override-destination: true
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  skip-domain: []
+  force-dns-mapping: true
+  parse-pure-ip: true

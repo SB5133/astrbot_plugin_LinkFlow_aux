@@ -1,0 +1,16 @@
+# /etc/systemd/system/ks-live-proxy.service
+[Unit]
+Description=Kuaishou live-photo proxy server (mitmdump + ks_live_server :8765)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zm
+ExecStart=/home/zm/zmbot/astrbot_plugin_LinkFlow_aux/start_mitm_tablet.sh
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
